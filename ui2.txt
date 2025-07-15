@@ -1,0 +1,273 @@
+import chainlit as cl
+import csv
+import time
+
+def process_csv_to_graph(filepath):
+    """
+    Reads the CSV and converts it into a graph structure for D3.
+    """
+    # This function remains the same as before.
+    links = []
+    nodes_map = {}
+    with open(filepath, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            source_id = row['source']
+            target_id = row['target']
+            links.append({"source": source_id, "target": target_id})
+            if source_id not in nodes_map:
+                nodes_map[source_id] = {"id": source_id}
+            nodes_map[source_id]['color'] = row.get('color', '#999')
+            nodes_map[source_id]['shape'] = row.get('shape', 'circle')
+            attributes = {k: v for k, v in row.items() if k not in ['source', 'target', 'color', 'shape']}
+            nodes_map[source_id]['attributes'] = attributes
+            if target_id not in nodes_map:
+                nodes_map[target_id] = {"id": target_id, "color": "#607d8b", "shape": "circle", "attributes": {"details": "Terminal node"}}
+    return {"nodes": list(nodes_map.values()), "links": links}
+
+@cl.on_chat_start
+async def start():
+    """
+    This function now just sends a welcome message.
+    """
+    await cl.Message(
+        content="Hello! Type **show chart** to generate the flowchart."
+    ).send()
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    """
+    This function runs every time a user sends a message.
+    """
+    # Check if the user's message is our trigger keyword.
+    if "show chart" in message.content.lower():
+        # Simulate a backend process running
+        msg = cl.Message(content="Processing request... please wait.")
+        await msg.send()
+        time.sleep(1.5) # Pausing for 1.5 seconds
+
+        # Run the data processing and create the chart
+        graph_data = process_csv_to_graph('comp.csv')
+        
+        # Send the final message with the chart element
+        await cl.Message(
+            content="## Pure React Flowchart\nHere is the chart generated from your trigger.",
+            elements=[
+                cl.CustomElement(name="FlowChartViewer", props={"data": graph_data})
+            ]
+        ).send()
+    else:
+        # If the message is not the trigger, send a default reply.
+        await cl.Message(
+            content="I'm sorry, I don't understand. Please type **show chart** to see the visualization."
+        ).send()
+
+@cl.action_callback("node_clicked")
+async def on_node_click(action: cl.Action):
+    """
+    This function for node clicks remains unchanged.
+    """
+    node_id = action.payload.get("id")
+    await cl.Message(content=f"Action triggered for node: **{node_id}**").send()
+
+
+source,target,color,shape,details,status
+Start Process,Ingest User Data,#4CAF50,circle,"Entry point for user info",Active
+Start Process,Ingest System Logs,#4CAF50,circle,"Entry point for system info",Active
+Ingest User Data,Validate User Schema,#2196F3,rect,"Check user data format",Active
+Ingest System Logs,Parse Log Format,#2196F3,rect,"Extract info from logs",Active
+Validate User Schema,Enrich User Profile,#9C27B0,rect,"Add more data to user profile",Active
+Parse Log Format,Detect System Anomalies,#FFC107,rect,"Look for system errors",Warning
+Detect System Anomalies,Create Alert Ticket,#FFC107,rect,"File a ticket for engineering",Active
+Enrich User Profile,Aggregate Data,#009688,rect,"Combine user and system data",Active
+Detect System Anomalies,Aggregate Data,#009688,rect,"Combine user and system data",Active
+Create Alert Ticket,Notify On-Call Engineer,#F44336,circle,"Send a page to on-call",Complete
+Aggregate Data,Generate Final Report,#607D8B,rect,"Create summary document",Active
+Generate Final Report,Archive Data,#795548,rect,"Store results in cold storage",Active
+Archive Data,Process Complete,#F44336,circle,"End of the process",Complete
+
+
+import React, { useState, useMemo } from 'react';
+import { Card } from "@/components/ui/card";
+
+// The layout function remains the same.
+function calculateLayout(nodes, links, width, height) {
+    const nodeMap = new Map(nodes.map(n => [n.id, { ...n, children: [], parents: [] }]));
+    
+    links.forEach(link => {
+        const sourceNode = nodeMap.get(link.source);
+        const targetNode = nodeMap.get(link.target);
+        if (sourceNode && targetNode) {
+            sourceNode.children.push(targetNode.id);
+            targetNode.parents.push(sourceNode.id);
+        }
+    });
+
+    const layers = [];
+    let currentLayer = nodes.filter(n => !nodeMap.get(n.id).parents.length);
+    
+    while(currentLayer.length > 0) {
+        layers.push(currentLayer.map(n => n.id));
+        const nextLayerNodeIds = new Set();
+        currentLayer.forEach(node => {
+            nodeMap.get(node.id).children.forEach(childId => {
+                nextLayerNodeIds.add(childId);
+            });
+        });
+        currentLayer = Array.from(nextLayerNodeIds).map(id => nodeMap.get(id) || {id});
+    }
+    
+    const nodePositions = new Map();
+    const yPadding = 50;
+    const yStep = (height - yPadding * 2) / (layers.length - 1 || 1);
+
+    layers.forEach((layer, i) => {
+        const xPadding = 80;
+        const xStep = (width - xPadding * 2) / (layer.length - 1 || 1);
+        layer.forEach((nodeId, j) => {
+            nodePositions.set(nodeId, {
+                x: layer.length === 1 ? width / 2 : xPadding + j * xStep,
+                y: yPadding + i * yStep,
+            });
+        });
+    });
+
+    return { nodePositions };
+}
+
+
+export default function FlowChartViewer() {
+    const { nodes, links } = props.data || { nodes: [], links: [] };
+    const [tooltip, setTooltip] = useState(null);
+
+    const { nodePositions } = useMemo(() => {
+        return calculateLayout(nodes, links, 800, 600);
+    }, [nodes, links]);
+
+    const handleMouseOver = (event, node) => {
+        setTooltip({
+            content: node.attributes,
+            x: event.clientX,
+            y: event.clientY,
+        });
+    };
+
+    const handleMouseOut = () => {
+        setTooltip(null);
+    };
+
+    const handleClick = (node) => {
+        callAction({ name: "node_clicked", payload: node });
+    };
+
+    return (
+        <Card className="p-2 relative" style={{ width: '800px', height: '600px' }}>
+            <svg width="100%" height="100%" viewBox="0 0 800 600">
+                {/* ✨ THE FIX: Render all nodes first, so links draw on top. */}
+                <g>
+                    {nodes.map(node => {
+                        const pos = nodePositions.get(node.id);
+                        if (!pos) return null;
+                        const commonProps = {
+                            onMouseOver: (e) => handleMouseOver(e, node),
+                            onMouseOut: handleMouseOut,
+                            onClick: () => handleClick(node),
+                            style: { cursor: 'pointer' },
+                            fill: node.color || '#999'
+                        };
+
+                        return (
+                            <g key={node.id} transform={`translate(${pos.x}, ${pos.y})`}>
+                                {node.shape === 'rect' ? (
+                                    <rect x="-50" y="-20" width="100" height="40" rx="5" {...commonProps} />
+                                ) : (
+                                    <circle r="30" {...commonProps} />
+                                )}
+                                <foreignObject x="-45" y="-15" width="90" height="30" style={{pointerEvents: 'none'}}>
+                                   <div style={{
+                                       width: '100%',
+                                       height: '100%',
+                                       display: 'flex',
+                                       alignItems: 'center',
+                                       justifyContent: 'center',
+                                       textAlign: 'center',
+                                       color: 'white',
+                                       fontSize: '10px',
+                                       fontWeight: 'bold',
+                                       fontFamily: 'sans-serif',
+                                       wordBreak: 'break-word'
+                                   }}>
+                                       {node.id}
+                                   </div>
+                                </foreignObject>
+                            </g>
+                        );
+                    })}
+                </g>
+                 {/* Render links second */}
+                <g>
+                    {links.map((link, i) => {
+                        const sourcePos = nodePositions.get(link.source);
+                        const targetPos = nodePositions.get(link.target);
+                        if (!sourcePos || !targetPos) return null;
+
+                        // Adjust the line ends to point to the node edge instead of center
+                        const dx = targetPos.x - sourcePos.x;
+                        const dy = targetPos.y - sourcePos.y;
+                        const gap = nodeMap.get(link.target)?.shape === 'rect' ? 25 : 35;
+                        const length = Math.sqrt(dx * dx + dy * dy);
+                        const newTargetX = targetPos.x - (dx / length) * gap;
+                        const newTargetY = targetPos.y - (dy / length) * gap;
+
+                        return (
+                            <path
+                                key={i}
+                                d={`M${sourcePos.x},${sourcePos.y} C${sourcePos.x},${(sourcePos.y + newTargetY) / 2} ${newTargetX},${(sourcePos.y + newTargetY) / 2} ${newTargetX},${newTargetY}`}
+                                stroke="#999"
+                                strokeWidth="2"
+                                fill="none"
+                                markerEnd="url(#arrow)"
+                            />
+                        );
+                    })}
+                </g>
+                <defs>
+                    <marker
+                        id="arrow"
+                        viewBox="0 0 10 10"
+                        refX="5"
+                        refY="5"
+                        markerWidth="6"
+                        markerHeight="6"
+                        orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#999" />
+                    </marker>
+                </defs>
+            </svg>
+
+            {/* Tooltip Element */}
+            {tooltip && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: tooltip.y + 15,
+                        left: tooltip.x + 15,
+                        background: 'black',
+                        color: 'white',
+                        padding: '8px',
+                        borderRadius: '4px',
+                        pointerEvents: 'none',
+                        fontSize: '12px'
+                    }}
+                >
+                    {Object.entries(tooltip.content).map(([key, value]) => (
+                        <div key={key}><strong>{key}:</strong> {value}</div>
+                    ))}
+                </div>
+            )}
+        </Card>
+    );
+}
+
+// Add this helper map outside the component for the line adjustment logic
+const nodeMap = new Map(props.data?.nodes.map(n => [n.id, n]));
