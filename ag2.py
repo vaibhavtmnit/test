@@ -296,3 +296,114 @@ def run_end_to_end_tests():
 if __name__ == "__main__":
     run_end_to_end_tests()
 
+
+
+
+You are absolutely right. The current supervisor is just a simple Python script. Let's elevate it into a proper, intelligent LangGraph agent that can make decisions.
+
+This new supervisor will be a StateGraph that orchestrates the workflow, deciding whether to proceed or halt based on the output of the first agent. This is the correct and modern way to implement the logic you're describing.
+
+I will update the supervisor.py file in your Canvas with this new LangGraph implementation. I will also update the corresponding test file so you can see how to run this new agent.
+
+1. The New Supervisor Agent (as a LangGraph)
+This is the updated supervisor.py. It now defines a stateful graph that manages the entire process.
+
+2. The Updated Testing Utility
+This test file is now updated to import the supervisor_app from the new supervisor.py and invoke it correctly.
+
+
+
+
+
+
+how give me a template on how can I add more worker agents to the superviser and what change would be required in supeviser
+
+
+
+
+Show thinking
+Of course. Extending the supervisor with more worker agents is the natural next step. Here is a clear template and explanation of the changes required in the supervisor.py file in your Canvas.
+
+The general pattern involves three steps:
+
+Create your new worker agent function.
+
+Add it as a new node in the supervisor's graph.
+
+Update the graph's routing logic (the edges) to include this new node in the workflow.
+
+Let's imagine we want to add a new worker called Data Analyzer. Its job is to take the JSON data from the data_fetcher and produce a simple analysis.
+
+### Step 1: Create the New Worker Agent Function
+First, you would create the function for your new agent. It would look something like this. You could place this function within your supervisor.py file or import it from its own file.
+
+Python
+
+# --- Template for a New Worker Agent ---
+
+def call_data_analyzer(state: SupervisorState):
+    """
+    A new worker that analyzes the data fetched by the previous step.
+    """
+    print("--- SUPERVISOR: Calling Data Analyzer ---")
+    # This agent would receive the 'data' through the state, but since
+    # our current state doesn't pass it, we'll just use the final_message
+    # for this example. A real implementation would add 'data' to the state.
+    
+    analysis_result = "Analysis complete: The 'Notional Amount' field is within expected limits."
+    
+    # It updates the final_message in the state
+    return {"final_message": analysis_result}
+### Step 2: Update the Supervisor Graph
+Next, you need to modify the build_supervisor_graph function inside your supervisor.py file in the Canvas to integrate this new worker.
+
+Here are the required changes:
+
+Add the New Node: You add the call_data_analyzer function as a new node in the graph.
+
+Update the Edges: Instead of the data_fetcher node going directly to END, you change its edge to point to your new analyzer node. The analyzer node will then point to END.
+
+Here is what the modified build_supervisor_graph function would look like.
+
+Python
+
+# --- Modified section within agent/supervisor.py ---
+
+def build_supervisor_graph():
+    """Builds and compiles the supervisor StateGraph."""
+    graph = StateGraph(SupervisorState)
+
+    # Add the existing nodes
+    graph.add_node("query_parser", call_query_parser)
+    graph.add_node("data_fetcher", call_data_fetcher)
+    graph.add_node("error_handler", handle_error_and_end)
+    
+    # --- 1. Add your new worker as a node ---
+    graph.add_node("analyzer", call_data_analyzer) # New line
+
+    # Set the entry point (this doesn't change)
+    graph.set_entry_point("query_parser")
+
+    # The conditional edge for the parser doesn't change
+    graph.add_conditional_edges(
+        "query_parser",
+        after_parsing_router,
+        {
+            "call_data_fetcher": "data_fetcher",
+            "end_with_error": "error_handler",
+        },
+    )
+    
+    # --- 2. Update the graph edges ---
+    # The data_fetcher no longer ends the graph. It now goes to the analyzer.
+    graph.add_edge("data_fetcher", "analyzer") # Changed line
+    
+    # The new analyzer node now marks the end of the successful workflow.
+    graph.add_edge("analyzer", END) # New line
+    
+    # The error handler edge doesn't change
+    graph.add_edge("error_handler", END)
+
+    # Compile the graph into a runnable application
+    return graph.compile()
+By following this pattern, you can chain as many worker agents as you need, creating complex workflows that are managed and orchestrated by the supervisor graph
