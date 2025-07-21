@@ -290,3 +290,115 @@ async def on_message(message: cl.Message):
 
     response_msg.content = final_content
     await response_msg.update()
+
+
+
+
+# supervisor_setup.py
+
+import os
+import operator
+from typing import TypedDict, Annotated, Sequence, Any
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import AzureChatOpenAI
+from langgraph.graph import StateGraph, END
+
+# Import the worker agent
+from agent.query_validator_class import QueryValidatorAgent
+
+# --- State Definition for the Supervisor ---
+class SupervisorState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+
+# --- Build the Supervisor Graph ---
+def build_supervisor_graph():
+    """Builds and returns the main supervisor agent graph."""
+    
+    # 1. Instantiate Worker Agents
+    validator_agent = QueryValidatorAgent()
+    # Future agents (e.g., DataFetcherAgent) would be instantiated here.
+    
+    # 2. Define the Tools for the Supervisor
+    # Each worker agent is exposed as a tool for the supervisor to use.
+    tools = {
+        "validate_and_enrich_query": {
+            "graph": validator_agent.graph,
+            "description": "Validates, enriches, and confirms details of a user's initial query about a transaction. Use this first for all new requests."
+        },
+        # Add other agents as tools here in the future
+    }
+    
+    # 3. Create the Supervisor Agent Logic
+    system_prompt = (
+        "You are a supervisor in a financial services firm, tasked with managing a conversation between a user and a team of expert AI agents."
+        "Given the user's request, determine which agent is best suited to handle it by calling the appropriate tool."
+        "The available agents (tools) are:\n\n"
+        "{tool_descriptions}\n\n"
+        "If you are unsure, ask the user for clarification. Respond directly to the user only if the query is a greeting or does not require a specialized agent."
+    )
+    
+    llm = AzureChatOpenAI(
+        azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
+        temperature=0
+    )
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="messages"),
+    ]).partial(tool_descriptions="\n".join([f"- {name}: {info['description']}" for name, info in tools.items()]))
+
+    # Bind the tools to the LLM. This is the standard langgraph 0.3.x+ approach.
+    supervisor_llm = prompt | llm.bind_tools(
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": info["description"],
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"messages": {"type": "array", "items": {"type": "object"}}},
+                    },
+                },
+            }
+            for name, info in tools.items()
+        ]
+    )
+
+    # 4. Define the Graph Nodes and Edges
+    graph = StateGraph(SupervisorState)
+
+    def supervisor_node(state: SupervisorState):
+        """The main node that calls the supervisor LLM to decide the next action."""
+        print("--- SUPERVISOR: Deciding next action ---")
+        response = supervisor_llm.invoke(state)
+        return {"messages": [response]}
+
+    def tool_node(state: SupervisorState):
+        """This node executes the tools (worker agents) chosen by the supervisor."""
+        last_message = state["messages"][-1]
+        tool_messages = []
+        for tool_call in last_message.tool_calls:
+            worker_graph = tools[tool_call["name"]]["graph"]
+            print(f"--- SUPERVISOR: Calling worker: {tool_call['name']} ---")
+            # The worker graph is invoked with its own state.
+            # We pass the current conversation history to the worker.
+            worker_response = worker_graph.invoke({"messages": state["messages"]})
+            # The tool message should contain the final messages from the worker's execution
+            tool_messages.append(ToolMessage(content=str(worker_response["messages"]), tool_call_id=tool_call["id"]))
+        return {"messages": tool_messages}
+
+    def route_logic(state: SupervisorState):
+        """Decides whether to call a tool or end the conversation."""
+        if isinstance(state["messages"][-1], AIMessage) and state["messages"][-1].tool_calls:
+            return "call_tool"
+        return END
+
+    graph.add_node("supervisor", supervisor_node)
+    graph.add_node("call_tool", tool_node)
+    graph.add_conditional_edges("supervisor", route_logic)
+    graph.add_edge("call_tool", "supervisor")
+    graph.set_entry_point("supervisor")
+
+    return graph.compile()
