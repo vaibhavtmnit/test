@@ -7,7 +7,8 @@ from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.prebuilt import create_tool_calling_agent
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.tools import tool
@@ -63,24 +64,39 @@ def build_supervisor_graph():
     )
     tools = [get_regulatory_reporting_fields, confirm_trade_details_for_investigation]
     
-    # 2. Create the Agent using a pre-built helper
-    # This function wires up the LLM, tools, and memory for us.
-    # It will automatically create a graph that reasons, calls tools, and responds.
-    system_prompt = (
-        "You are an expert assistant for financial regulatory reporting. Your job is to interact with the user to get all the necessary details for a trade investigation.\n"
-        "You must collect and confirm three pieces of information: the UTI, the regulator, and the specific field to investigate.\n"
-        "1. Start by asking the user for the details if they haven't provided them.\n"
-        "2. If the user provides a field name and regulator, use the `get_regulatory_reporting_fields` tool to check if the field is valid.\n"
-        "3. Ask for confirmation from the user before proceeding. Be explicit, for example: 'Is it correct that you want to investigate the Notional Amount for UTI 123 under EMIR?'\n"
-        "4. Once you have confirmed all details, and only then, call the `confirm_trade_details_for_investigation` tool to finalize the process."
-    )
-
-    agent_graph = create_tool_calling_agent(
-        llm=llm,
-        tools=tools,
-        system_prompt=system_prompt,
-        state_schema=AgentState,
-        checkpointer=SqliteSaver.from_conn_string(":memory:"),
-    )
+    # 2. Bind the tools to the LLM. This creates the "agent" component.
+    llm_with_tools = llm.bind_tools(tools)
     
-    return agent_graph
+    # 3. Define the graph nodes
+    # The 'agent' node will be the LLM with tools bound
+    def agent_node(state):
+        """Calls the LLM to decide the next action or respond to the user."""
+        response = llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
+
+    # The 'tool' node will execute the tools chosen by the agent
+    tool_node = ToolNode(tools)
+
+    # 4. Define the routing logic
+    def should_continue(state):
+        """Determines whether to continue with a tool call or end the turn."""
+        last_message = state["messages"][-1]
+        if last_message.tool_calls:
+            return "tools"  # Route to the tool node
+        return "end"  # End the conversation for this turn
+
+    # 5. Assemble the graph
+    graph = StateGraph(AgentState)
+    graph.add_node("agent", agent_node)
+    graph.add_node("tools", tool_node)
+    graph.set_entry_point("agent")
+    graph.add_conditional_edges(
+        "agent",
+        should_continue,
+        {"tools": "tools", "end": END}
+    )
+    graph.add_edge("tools", "agent") # After executing tools, loop back to the agent
+
+    # 6. Compile the graph with memory
+    checkpointer = SqliteSaver.from_conn_string(":memory:")
+    return graph.compile(checkpointer=checkpointer)
