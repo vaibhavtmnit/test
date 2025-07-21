@@ -139,8 +139,41 @@ export default function FlowChartViewer() {
                         };
 
                         return (
-                            // --- NEW ---
-                            // 3. Render SVG elements using the calculated dynamic sizes.
+        <Card className="p-2 relative overflow-auto" style={{ width: '800px', height: '600px' }}>
+            <svg width="800" height={totalHeight}>
+                {/* SVG Links (Edges) Group */}
+                <g>
+                    {links.map((link, i) => {
+                        const sourceNode = nodes.find(n => n.id === link.source);
+                        const targetNode = nodes.find(n => n.id === link.target);
+                        const sourcePos = nodePositions.get(link.source);
+                        const targetPos = nodePositions.get(link.target);
+                        if (!sourcePos || !targetPos || !sourceNode || !targetNode) return null;
+
+                        const gap = targetNode.shape === 'rect' ? targetNode.dimensions.rectHeight / 2 : targetNode.dimensions.circleRadius;
+                        const dx = targetPos.x - sourcePos.x;
+                        const dy = targetPos.y - sourcePos.y;
+                        const length = Math.sqrt(dx * dx + dy * dy);
+                        const newTargetX = targetPos.x - (dx / length) * gap;
+                        const newTargetY = targetPos.y - (dy / length) * gap;
+
+                        return (
+                            <path key={i} d={`M${sourcePos.x},${sourcePos.y}L${newTargetX},${newTargetY}`} stroke="#999" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+                        );
+                    })}
+                </g>
+                {/* SVG Nodes Group */}
+                <g>
+                    {nodes.map(node => {
+                        const pos = nodePositions.get(node.id);
+                        if (!pos) return null;
+                        const { rectWidth, rectHeight, circleRadius } = node.dimensions;
+                        const commonProps = {
+                            onMouseOver: (e) => handleMouseOver(e, node), onMouseOut: handleMouseOut,
+                            onClick: () => handleClick(node), style: { cursor: 'pointer' }, fill: node.color || '#999'
+                        };
+
+                        return (
                             <g key={node.id} transform={`translate(${pos.x}, ${pos.y})`}>
                                 {node.shape === 'rect' ? (
                                     <rect x={-rectWidth / 2} y={-rectHeight / 2} width={rectWidth} height={rectHeight} rx="5" {...commonProps} />
@@ -160,13 +193,34 @@ export default function FlowChartViewer() {
                         );
                     })}
                 </g>
+                {/* SVG Arrowhead Definition */}
                 <defs>
                     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                     <path d="M 0 0 L 10 5 L 0 10 z" fill="#999" />
                     </marker>
                 </defs>
             </svg>
-            {tooltip && ( /* Tooltip JSX remains the same */ )}
+
+            {/* --- THIS IS THE MISSING TOOLTIP CODE --- */}
+            {tooltip && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: tooltip.y + 15,
+                        left: tooltip.x + 15,
+                        background: 'black',
+                        color: 'white',
+                        padding: '8px',
+                        borderRadius: '4px',
+                        pointerEvents: 'none',
+                        fontSize: '12px',
+                        zIndex: 100 // Ensure it appears on top
+                    }}
+                >
+                    {Object.entries(tooltip.content).map(([key, value]) => (
+                        <div key={key}><strong>{key}:</strong> {value}</div>
+                    ))}
+                </div>
+            )}
         </Card>
     );
-}
