@@ -62,6 +62,19 @@ def parse_user_query(user_query: str) -> tuple[Optional[dict], Optional[str], Op
     try:
         # Invoke the agent to get the structured data
         parsed_data = extractor_agent.invoke(prompt)
+
+        # --- ADDED VALIDATION STEP ---
+        # Check for placeholder values hallucinated by the LLM.
+        invalid_placeholders = ['unknown', 'n/a', 'not specified', 'none']
+        if parsed_data.regulator.lower() in invalid_placeholders:
+            error_message = "Validation Error: 'regulator' is a mandatory field and could not be identified."
+            print(f"❌ {error_message}")
+            return None, None, error_message
+        if parsed_data.field_to_investigate.lower() in invalid_placeholders:
+            error_message = "Validation Error: 'field_to_investigate' is a mandatory field and could not be identified."
+            print(f"❌ {error_message}")
+            return None, None, error_message
+        # --- END OF ADDED VALIDATION ---
         
         # If successful, prepare the output as requested
         # Create a dictionary of all found entities
@@ -83,7 +96,6 @@ def parse_user_query(user_query: str) -> tuple[Optional[dict], Optional[str], Op
         error_message = f"An unexpected error occurred: {e}"
         print(f"❌ {error_message}")
         return None, None, error_message
-
 
 
 # tests/test_query_parser.py
