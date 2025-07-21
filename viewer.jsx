@@ -1,14 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { Card } from "@/components/ui/card";
 
-// --- NEW ---
-// 1. Helper function to estimate the size needed for the text.
 function getTextDimensions(text) {
-    const lines = text.split(' '); // Simple word split
-    const charWidth = 6; // Estimated width of a character in pixels
-    const lineHeight = 12; // Height of a line in pixels
-    const padding = 10; // Padding around the text
-    const maxWidth = 90; // Max width of a node before wrapping
+    const lines = text.split(' ');
+    const charWidth = 6;
+    const lineHeight = 12;
+    const padding = 10;
+    const maxWidth = 90;
 
     let currentLineWidth = 0;
     let lineCount = 1;
@@ -24,7 +22,6 @@ function getTextDimensions(text) {
     });
 
     const height = lineCount * lineHeight + padding * 2;
-    // For circles, the width and height must be equal (diameter)
     const diameter = Math.sqrt(Math.max(currentLineWidth, maxWidth) ** 2 + height ** 2);
 
     return {
@@ -34,13 +31,8 @@ function getTextDimensions(text) {
     };
 }
 
-
-// 2. Updated layout function to handle dynamic node sizes.
 function calculateLayout(nodes, links, width) {
-    const nodeMap = new Map(nodes.map(n => {
-        const dimensions = getTextDimensions(n.id);
-        return [n.id, { ...n, children: [], parents: [], dimensions }];
-    }));
+    const nodeMap = new Map(nodes.map(n => ({ ...n, children: [], parents: [] })).map(n => [n.id, n]));
 
     links.forEach(link => {
         const sourceNode = nodeMap.get(link.source);
@@ -66,11 +58,12 @@ function calculateLayout(nodes, links, width) {
     const nodePositions = new Map();
     let currentY = 50;
 
-    layers.forEach((layer, i) => {
+    layers.forEach((layer) => {
         const xPadding = 80;
         const xStep = (width - xPadding * 2) / (layer.length - 1 || 1);
         let maxLayerHeight = 0;
 
+        // ✨ THE FIX: Add the index 'j' to the forEach loop arguments.
         layer.forEach((nodeId, j) => {
             const node = nodeMap.get(nodeId);
             const nodeHeight = node.shape === 'rect' ? node.dimensions.rectHeight : node.dimensions.circleRadius * 2;
@@ -81,7 +74,7 @@ function calculateLayout(nodes, links, width) {
                 y: currentY + nodeHeight / 2,
             });
         });
-        currentY += maxLayerHeight + 50; // Update Y for the next layer
+        currentY += maxLayerHeight + 50;
     });
 
     const totalHeight = currentY;
@@ -93,78 +86,26 @@ export default function FlowChartViewer() {
     const { nodes, links } = props.data || { nodes: [], links: [] };
     const [tooltip, setTooltip] = useState(null);
 
+    const nodesWithDimensions = useMemo(() => {
+        return nodes.map(n => ({...n, dimensions: getTextDimensions(n.id)}));
+    }, [nodes]);
+
     const { nodePositions, totalHeight } = useMemo(() => {
-        const nodeDetails = nodes.map(n => ({...n, dimensions: getTextDimensions(n.id)}));
-        return calculateLayout(nodeDetails, links, 800);
-    }, [nodes, links]);
+        return calculateLayout(nodesWithDimensions, links, 800);
+    }, [nodesWithDimensions, links]);
 
-    const handleMouseOver = (event, node) => {
-        setTooltip({ content: node.attributes, x: event.clientX, y: event.clientY });
-    };
-
-    const handleMouseOut = () => { setTooltip(null); };
-    const handleClick = (node) => { callAction({ name: "node_clicked", payload: node }); };
+    const handleMouseOver = (event, node) => setTooltip({ content: node.attributes, x: event.clientX, y: event.clientY });
+    const handleMouseOut = () => setTooltip(null);
+    const handleClick = (node) => callAction({ name: "node_clicked", payload: node });
+    
+    const nodeMap = useMemo(() => new Map(nodesWithDimensions.map(n => [n.id, n])), [nodesWithDimensions]);
 
     return (
         <Card className="p-2 relative overflow-auto" style={{ width: '800px', height: '600px' }}>
             <svg width="800" height={totalHeight}>
+                {/* Render Nodes First */}
                 <g>
-                    {links.map((link, i) => {
-                        const sourceNode = nodes.find(n => n.id === link.source);
-                        const targetNode = nodes.find(n => n.id === link.target);
-                        const sourcePos = nodePositions.get(link.source);
-                        const targetPos = nodePositions.get(link.target);
-                        if (!sourcePos || !targetPos || !sourceNode || !targetNode) return null;
-
-                        const gap = targetNode.shape === 'rect' ? targetNode.dimensions.rectHeight / 2 : targetNode.dimensions.circleRadius;
-                        const dx = targetPos.x - sourcePos.x;
-                        const dy = targetPos.y - sourcePos.y;
-                        const length = Math.sqrt(dx * dx + dy * dy);
-                        const newTargetX = targetPos.x - (dx / length) * gap;
-                        const newTargetY = targetPos.y - (dy / length) * gap;
-
-                        return (
-                            <path key={i} d={`M${sourcePos.x},${sourcePos.y}L${newTargetX},${newTargetY}`} stroke="#999" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-                        );
-                    })}
-                </g>
-                <g>
-                    {nodes.map(node => {
-                        const pos = nodePositions.get(node.id);
-                        if (!pos) return null;
-                        const { rectWidth, rectHeight, circleRadius } = node.dimensions;
-                        const commonProps = {
-                            onMouseOver: (e) => handleMouseOver(e, node), onMouseOut: handleMouseOut,
-                            onClick: () => handleClick(node), style: { cursor: 'pointer' }, fill: node.color || '#999'
-                        };
-
-                        return (
-        <Card className="p-2 relative overflow-auto" style={{ width: '800px', height: '600px' }}>
-            <svg width="800" height={totalHeight}>
-                {/* SVG Links (Edges) Group */}
-                <g>
-                    {links.map((link, i) => {
-                        const sourceNode = nodes.find(n => n.id === link.source);
-                        const targetNode = nodes.find(n => n.id === link.target);
-                        const sourcePos = nodePositions.get(link.source);
-                        const targetPos = nodePositions.get(link.target);
-                        if (!sourcePos || !targetPos || !sourceNode || !targetNode) return null;
-
-                        const gap = targetNode.shape === 'rect' ? targetNode.dimensions.rectHeight / 2 : targetNode.dimensions.circleRadius;
-                        const dx = targetPos.x - sourcePos.x;
-                        const dy = targetPos.y - sourcePos.y;
-                        const length = Math.sqrt(dx * dx + dy * dy);
-                        const newTargetX = targetPos.x - (dx / length) * gap;
-                        const newTargetY = targetPos.y - (dy / length) * gap;
-
-                        return (
-                            <path key={i} d={`M${sourcePos.x},${sourcePos.y}L${newTargetX},${newTargetY}`} stroke="#999" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-                        );
-                    })}
-                </g>
-                {/* SVG Nodes Group */}
-                <g>
-                    {nodes.map(node => {
+                    {nodesWithDimensions.map(node => {
                         const pos = nodePositions.get(node.id);
                         if (!pos) return null;
                         const { rectWidth, rectHeight, circleRadius } = node.dimensions;
@@ -193,7 +134,27 @@ export default function FlowChartViewer() {
                         );
                     })}
                 </g>
-                {/* SVG Arrowhead Definition */}
+                {/* Render Links on Top */}
+                <g>
+                    {links.map((link, i) => {
+                        const sourceNode = nodeMap.get(link.source);
+                        const targetNode = nodeMap.get(link.target);
+                        const sourcePos = nodePositions.get(link.source);
+                        const targetPos = nodePositions.get(link.target);
+                        if (!sourcePos || !targetPos || !sourceNode || !targetNode) return null;
+
+                        const gap = targetNode.shape === 'rect' ? targetNode.dimensions.rectHeight / 2 : targetNode.dimensions.circleRadius;
+                        const dx = targetPos.x - sourcePos.x;
+                        const dy = targetPos.y - sourcePos.y;
+                        const length = Math.sqrt(dx * dx + dy * dy);
+                        const newTargetX = targetPos.x - (dx / length) * gap;
+                        const newTargetY = targetPos.y - (dy / length) * gap;
+
+                        return (
+                            <path key={i} d={`M${sourcePos.x},${sourcePos.y}L${newTargetX},${newTargetY}`} stroke="#999" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+                        );
+                    })}
+                </g>
                 <defs>
                     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                     <path d="M 0 0 L 10 5 L 0 10 z" fill="#999" />
@@ -201,7 +162,7 @@ export default function FlowChartViewer() {
                 </defs>
             </svg>
 
-            {/* --- THIS IS THE MISSING TOOLTIP CODE --- */}
+            {/* Tooltip Element */}
             {tooltip && (
                 <div
                     style={{
@@ -214,13 +175,14 @@ export default function FlowChartViewer() {
                         borderRadius: '4px',
                         pointerEvents: 'none',
                         fontSize: '12px',
-                        zIndex: 100 // Ensure it appears on top
+                        zIndex: 100
                     }}
                 >
-                    {Object.entries(tooltip.content).map(([key, value]) => (
+                    {tooltip.content && Object.entries(tooltip.content).map(([key, value]) => (
                         <div key={key}><strong>{key}:</strong> {value}</div>
                     ))}
                 </div>
             )}
         </Card>
     );
+}
