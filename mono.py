@@ -97,6 +97,7 @@ def build_supervisor_graph():
     )
     graph.add_edge("tools", "agent") # After executing tools, loop back to the agent
 
-    # 6. Compile the graph with memory
-    checkpointer = SqliteSaver.from_conn_string(":memory:")
-    return graph.compile(checkpointer=checkpointer)
+    # 6. Compile the graph
+    # The checkpointer is now attached at runtime in the main application file,
+    # not during compilation.
+    return graph.compile()
