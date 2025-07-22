@@ -3,7 +3,7 @@
 import os
 import operator
 from typing import TypedDict, Annotated, Sequence, Optional, Dict
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
@@ -74,12 +74,26 @@ def build_supervisor_graph():
         azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
         temperature=0
     )
+    
+    # --- ADDED SYSTEM PROMPT ---
+    # This prompt guides the LLM's behavior, making it more reliable.
+    system_prompt = (
+        "You are a helpful assistant for financial regulatory reporting. Your goal is to orchestrate a workflow to answer a user's query.\n"
+        "1. First, always use the `query_parser_tool` to understand and validate the user's request.\n"
+        "2. If the parser tool returns an error, report that error back to the user and stop.\n"
+        "3. If the parser tool succeeds, use the `data_fetcher_tool` with the details provided by the parser.\n"
+        "4. Once the data fetcher has run, provide its output to the user and end the workflow."
+    )
+    # --- END OF ADDED SECTION ---
+
     llm_with_tools = llm.bind_tools(tools)
 
     # Define the agent node: this calls the LLM to decide the next action
     def supervisor_agent_node(state: SupervisorState):
         print("--- SUPERVISOR: Deciding next action ---")
-        response = llm_with_tools.invoke(state["messages"])
+        # Prepend the system prompt to the conversation history
+        messages_with_prompt = [SystemMessage(content=system_prompt)] + state["messages"]
+        response = llm_with_tools.invoke(messages_with_prompt)
         return {"messages": [response]}
 
     # Define the tool node: this executes the chosen tool
