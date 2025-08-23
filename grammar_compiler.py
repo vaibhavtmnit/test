@@ -1,35 +1,41 @@
-from tree_sitter import Parser
-from tree_sitter_java import language as java_language # Import the Java language object
+import tree_sitter_java as tsj
+from tree_sitter import Parser, Language
+import sys # Import sys for printing directly to stderr if needed, though print is fine.
+
+def print_ast_recursive(node, indent=0):
+    """
+    Recursively prints the AST node by node, showing type and text.
+    """
+    node_text = node.text.decode('utf-8').strip().replace('\n', '\\n')
+    print(f"{'  ' * indent}{node.type} [start={node.start_point}, end={node.end_point}] -> '{node_text}'")
+    for child in node.children:
+        print_ast_recursive(child, indent + 1)
+
 
 def test_java_parsing(java_code: str):
     """
     Parses a given Java code string using tree-sitter-java and prints its AST.
     """
     try:
-        # Create a parser instance
-        parser = Parser()
-        # Set the language to Java using the imported language object
-        parser.set_language(java_language)
+        # --- Updated Language and Parser Initialization ---
+        # Initialize the Java Language object from tree_sitter_java
+        lng = Language(tsj.language())
+        # Create a parser instance and set its language
+        parser = Parser(language=lng)
+        # --- End Updated Initialization ---
 
         # Parse the Java code
         tree = parser.parse(java_code.encode('utf-8'))
 
-        # Print the S-expression representation of the AST
-        print("Successfully parsed Java code. Here's the AST (S-expression):")
-        print(tree.root_node.sexp())
-
-        # You can also iterate through the tree for more detailed inspection
-        # For example, to find all class declarations:
-        # print("\nNodes of type 'class_declaration':")
-        # for node in tree.root_node.children:
-        #     if node.type == 'class_declaration':
-        #         print(f"  Class Name: {node.child_by_field_name('name').text.decode('utf-8')}")
-        #         print(f"  Range: {node.start_point} to {node.end_point}")
+        # Print the AST in a human-readable format
+        print("Successfully parsed Java code. Here's the AST:")
+        print_ast_recursive(tree.root_node)
 
     except Exception as e:
-        print(f"An error occurred during parsing: {e}")
-        print("Please ensure 'tree-sitter' and 'tree-sitter-java' are correctly installed.")
-        print("You might need to restart your Python environment if you just installed them.")
+        # Catch any unexpected errors during parsing
+        print(f"An unexpected error occurred during parsing: {e}", file=sys.stderr)
+        print("Please ensure 'tree-sitter' and 'tree_sitter_java' are correctly installed", file=sys.stderr)
+        print("and your Python environment is restarted.", file=sys.stderr)
 
 # Example Java code to test
 java_snippet = """
