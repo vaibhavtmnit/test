@@ -1,40 +1,58 @@
-from tree_sitter import Language, Parser
-import os
+from tree_sitter import Parser
+from tree_sitter_java import language as java_language # Import the Java language object
 
-# Define the path where you cloned the tree-sitter-java grammar
-# Make sure this path points to the 'tree-sitter-java' directory you just cloned.
-GRAMMAR_REPO_PATH = 'path/to/your/cloned/tree-sitter-java' # e.g., './tree-sitter-java'
-
-# Define where you want to store the compiled library
-# A common choice is to put it in the same directory as your Python script
-BUILD_DIR = '.'
-JAVA_LANGUAGE_FILE = os.path.join(BUILD_DIR, 'java.so') # For Linux/macOS
-# For Windows, it might be 'java.dll' or 'java.pyd' depending on environment
-
-# Ensure the grammar repository exists
-if not os.path.exists(GRAMMAR_REPO_PATH):
-    print(f"Error: tree-sitter-java grammar not found at {GRAMMAR_REPO_PATH}")
-    print("Please clone it first: git clone https://github.com/tree-sitter/tree-sitter-java")
-else:
+def test_java_parsing(java_code: str):
+    """
+    Parses a given Java code string using tree-sitter-java and prints its AST.
+    """
     try:
-        Language.build_library(
-            # Store the library in the BUILD_DIR
-            JAVA_LANGUAGE_FILE,
-            # Path to the tree-sitter-java grammar directory
-            [
-                GRAMMAR_REPO_PATH
-            ]
-        )
-        print(f"Successfully built Java grammar library at {JAVA_LANGUAGE_FILE}")
-    except Exception as e:
-        print(f"Error building Java grammar library: {e}")
-        print("Ensure you have a C/C++ compiler installed (like GCC or Clang for Linux/macOS, MSVC for Windows).")
+        # Create a parser instance
+        parser = Parser()
+        # Set the language to Java using the imported language object
+        parser.set_language(java_language)
 
-# Now you can load and use it
-if os.path.exists(JAVA_LANGUAGE_FILE):
-    JAVA_LANGUAGE = Language(JAVA_LANGUAGE_FILE, 'java')
-    parser = Parser()
-    parser.set_language(JAVA_LANGUAGE)
-    print("Tree-sitter Java parser is ready!")
-else:
-    print("Java grammar library not found. Please check the build process.")
+        # Parse the Java code
+        tree = parser.parse(java_code.encode('utf-8'))
+
+        # Print the S-expression representation of the AST
+        print("Successfully parsed Java code. Here's the AST (S-expression):")
+        print(tree.root_node.sexp())
+
+        # You can also iterate through the tree for more detailed inspection
+        # For example, to find all class declarations:
+        # print("\nNodes of type 'class_declaration':")
+        # for node in tree.root_node.children:
+        #     if node.type == 'class_declaration':
+        #         print(f"  Class Name: {node.child_by_field_name('name').text.decode('utf-8')}")
+        #         print(f"  Range: {node.start_point} to {node.end_point}")
+
+    except Exception as e:
+        print(f"An error occurred during parsing: {e}")
+        print("Please ensure 'tree-sitter' and 'tree-sitter-java' are correctly installed.")
+        print("You might need to restart your Python environment if you just installed them.")
+
+# Example Java code to test
+java_snippet = """
+package com.example.app;
+
+import java.util.List;
+
+public class MyService {
+    private String name;
+
+    public MyService(String name) {
+        this.name = name;
+    }
+
+    public void processData(List<String> data) {
+        for (String item : data) {
+            System.out.println("Processing: " + item + " by " + this.name);
+        }
+    }
+}
+"""
+
+if __name__ == "__main__":
+    print("--- Testing tree-sitter-java ---")
+    test_java_parsing(java_snippet)
+    print("\nTest complete.")
