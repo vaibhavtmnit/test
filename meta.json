@@ -1,0 +1,1 @@
+{"batch_id": "precomputed-fixed-1756732882", "schema": [{"name": "severity", "kind": "int", "multi": false, "labels": null}, {"name": "category", "kind": "fixed", "multi": false, "labels": ["Info", "Warn", "Error"]}, {"name": "rationale", "kind": "free", "multi": false, "labels": null}], "n_samples": 30, "status": "completed", "finished_at": 1756732882.8215096}
