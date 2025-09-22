@@ -66,4 +66,113 @@ def object_discovery_prompts(*, method_name: str, code: str, chainable_only: boo
     return {"system": system, "user": user}
 
 
-#
+# 3) Object typing (best-effort from code; return UNKNOWN if unclear)
+def object_typing_prompts(*, var_name: str, code: str) -> Dict[str, str]:
+    system = (
+        "Determine the Java type of a single variable using ONLY the provided code. Strict JSON only. Rules:\n"
+        "• If it's a parameter, use its declared type.\n"
+        "• If it's a local with an explicit type (not 'var'), use that type.\n"
+        "• If it's 'var' initialized with 'new Type(...)', infer 'Type'.\n"
+        "• If assigned from a method call or otherwise unclear, return 'UNKNOWN' with a short reason.\n"
+        "• Confidence in [0,1]. Do not guess.\n"
+        'Output schema: {"variable":"...","type":"...","confidence":0.0,"reason":"...|null"}'
+    )
+    user = (
+        f"VARIABLE: {var_name}\n\n"
+        f"CODE:\n{code}\n\n"
+        "Few-shot examples:\n"
+        "1) int k=0; → ('k','int',~0.95)\n"
+        "2) var sb=new StringBuilder(); → ('sb','StringBuilder',~0.90)\n"
+        "3) String x=svc.run(); → ('x','UNKNOWN',reason='assigned from method call')\n\n"
+        "Return ONLY a JSON object per schema."
+    )
+    return {"system": system, "user": user}
+
+
+# 4) Relationship validator (parent→child, names only)
+def relationship_validator_prompts(*, parent_json: str, candidates_json: str, code: str) -> Dict[str, str]:
+    system = (
+        "Validate parent→child relationships for the analysis tree using ONLY the provided code. Strict JSON only. Rules:\n"
+        "• parent.kind='method': child.kind='call' must be a direct unqualified/this/super call in that method body; "
+        "  child.kind in {parameter,local} must be declared in that method.\n"
+        "• parent.kind='object': child.kind='call' must be a one-hop call whose receiver == object name (in its enclosing method).\n"
+        "• parent.kind='call_result': child.kind='call' must be the immediate next chained call after the named call.\n"
+        "• Reject literals, fields, nested-only vars, deeper chains. Empty verdicts allowed.\n"
+        'Output schema: {"verdicts":[{"child_name":"string","kind":"call|parameter|local","valid":true|false,"confidence":0.0,"reason":"string|null"}], "summary":"string|null"}'
+    )
+    user = (
+        f"PARENT (JSON): {parent_json}\n"
+        f"CANDIDATES (JSON): {candidates_json}\n\n"
+        f"CODE:\n{code}\n\n"
+        "Few-shot examples:\n"
+        "1) parent.method=m, candidate=('helper','call'): valid if 'helper()' is unqualified in m.\n"
+        "2) parent.object=x, candidate=('a','call'): valid if code has 'x.a(...)' (one hop), not if only 'y.a(...)'.\n"
+        "3) parent.call_result='a', candidate=('b','call'): valid if 'x.a(...).b(...)' appears.\n"
+        "4) parent.method=m, candidate=('field','local'): invalid if 'field' is a class field, not declared in m.\n\n"
+        "Return ONLY a JSON object per schema."
+    )
+    return {"system": system, "user": user}
+
+
+
+from langchain_openai import AzureChatOpenAI
+from langchain.schema import SystemMessage, HumanMessage
+from pydantic import BaseModel
+from prompt_builders import (
+    method_call_finder_prompts,
+    object_discovery_prompts,
+    object_typing_prompts,
+    relationship_validator_prompts,
+)
+
+# define your output schemas once
+class MethodCallsOut(BaseModel):
+    calls: list[str]
+    notes: str | None = None
+
+class ObjectDiscoveryOut(BaseModel):
+    parameters: list[str]
+    locals: list[str]
+    excluded: list[str]
+
+class TypeOut(BaseModel):
+    variable: str
+    type: str          # "UNKNOWN" allowed
+    confidence: float
+    reason: str | None = None
+
+class Verdict(BaseModel):
+    child_name: str
+    kind: str
+    valid: bool
+    confidence: float
+    reason: str | None = None
+
+class RelationshipValidationOut(BaseModel):
+    verdicts: list[Verdict]
+    summary: str | None = None
+
+# azure deployments
+fast = AzureChatOpenAI(azure_deployment="o3-mini", temperature=0)
+strong = AzureChatOpenAI(azure_deployment="o1-preview", temperature=0)
+
+# example: method-call finder
+prompts = method_call_finder_prompts(
+    focus_json='{"kind":"method","name":"start"}',
+    code="class C { void start(){ helper(); svc.run(); } void helper(){} }",
+)
+resp = fast.with_structured_output(MethodCallsOut).invoke(
+    [SystemMessage(content=prompts["system"]), HumanMessage(content=prompts["user"])]
+)
+print(resp)
+
+# example: relationship validator
+prompts = relationship_validator_prompts(
+    parent_json='{"kind":"object","name":"calc"}',
+    candidates_json='[{"child_name":"isOf","kind":"call"}]',
+    code="class C { void m(){ Calc calc=new Calc(); calc.isOf(x).isValid(); } }",
+)
+resp = strong.with_structured_output(RelationshipValidationOut).invoke(
+    [SystemMessage(content=prompts["system"]), HumanMessage(content=prompts["user"])]
+)
+print(resp)
