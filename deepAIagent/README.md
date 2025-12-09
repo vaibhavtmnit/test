@@ -1,4 +1,4 @@
-Here is your step-by-step, "Explain Like I'm 5" guide on how to set this up, where the prompts live, and how to press the "Go" button.
+
 
 ### The Big Picture (The Office Analogy)
 
