@@ -117,8 +117,3 @@ Here is the play-by-play of what you will see:
     *   They write a final answer.
     *   The terminal will print **=== FINAL AGGREGATED REPORT ===**.
 
-### Summary Checklist
-1.  **Code**: Copy/Paste the python files I gave you.
-2.  **Keys**: Fill in `.env`.
-3.  **Your Questions**: Edit `RESEARCH_GOALS` in `main.py`.
-4.  **Run**: Type `python main.py`.
