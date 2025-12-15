@@ -1,0 +1,56 @@
+re are the three methods to achieve this:
+1. Use the "Markdown" Output Format (Recommended)
+This is the easiest method, especially if you are passing the content to an LLM (like GPT-4). You can tell the API to return the content in Markdown format, which automatically structures sections using headings (#, ##, ###).
+Model: prebuilt-layout
+Parameter: Set outputContentFormat to markdown (available in API version 2024-02-29-preview and later).
+How it works: The content field in the response will contain a single Markdown string. You can simply split this string by the heading characters (#) to get specific sections.
+Example Request:
+code
+JSON
+POST /documentintelligence/documentModels/prebuilt-layout:analyze?api-version=2024-02-29-preview&outputContentFormat=markdown
+2. Use the sections Object (Structured Data)
+In newer API versions (v4.0+), the Layout model returns a dedicated sections array in the JSON response. This provides a hierarchical view of the document.[1][2][3][4]
+Model: prebuilt-layout
+Response Field: analyzeResult.sections
+How it works:
+The sections array lists every section found.
+Each section object contains an elements list, which references the paragraphs and content belonging to that section.[1]
+This allows you to programmatically select "Section 2.1" and grab exactly the paragraphs nested under it.
+Example JSON Response Structure:
+code
+JSON
+"sections": [
+  {
+    "spans": [ ... ],
+    "elements": [
+      "/paragraphs/0",
+      "/paragraphs/1",
+      "/tables/0"
+    ]
+  }
+]
+3. Use Paragraph "Roles" (Manual Parsing)
+If you are using an older version of the SDK or need fine-grained control, you can iterate through the list of paragraphs and look at the role property.
+Model: prebuilt-layout
+Response Field: analyzeResult.paragraphs
+How it works:
+Iterate through the paragraphs list.[3][5]
+Check if a paragraph has role: "sectionHeading", "title", or "pageHeader".
+When you hit a sectionHeading, you know a new section has started. Collect all subsequent paragraphs until you hit the next sectionHeading.
+Example Logic:
+code
+Python
+current_section = "Introduction"
+section_content = []
+
+for paragraph in result.paragraphs:
+    if paragraph.role == "sectionHeading":
+        # Save previous section and start new one
+        save_section(current_section, section_content)
+        current_section = paragraph.content
+        section_content = []
+    else:
+        section_content.append(paragraph.content)
+Summary Recommendation
+For AI/LLM Apps (RAG): Use Method 1 (Markdown). It is much cheaper to process and "chunk" markdown text (splitting by headers) than traversing complex JSON objects.
+For Data Extraction Apps: Use Method 2 (Sections Object). It is more robust for extracting specific data points relative to a header (e.g., "Extract the table under the 'Financial Results' section").
