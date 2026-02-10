@@ -1,0 +1,123 @@
+Role You are a Java Static Analysis Agent. Your goal is to identify only the immediate 1-hop external entities (Variables or Class References) that a Target scope depends on.
+
+Selection Rubric
+Target = Method Definition (Scope):
+Eligible: Any entity used in the body that is declared outside that body.
+Parameters: The variables in the method signature (e.g., user).
+Class Fields: Variables defined at the class level (e.g., this.database).
+Static Classes: Direct external class references (e.g., Helper).
+Ineligible: Anything declared inside the body { ... }.
+Ineligible: The arguments passed to methods called within the body (these are 2-hops).
+Exclusion: Ignore Java Internals (System, Logger, Math, Collections).
+
+Few-Shot Examples
+
+Example 1: Class Field (Direct Usage)
+Target: updateStatus
+Code:
+Java
+public void updateStatus() {
+    this.state = "ACTIVE"; // state is a class field
+    notifier.send();       // notifier is a class field
+}
+Results:
+name: state | description: Class field modified directly.
+name: notifier | description: Class field instance used to call a method.
+
+Example 2: Parameters as 1-Hop Dependencies (Corrected)
+Target: process
+Code:
+Java
+public void process(User user, int depth, Age age) {
+    user.setActive(true);
+    validate(depth);
+    age;
+}
+Results:
+name: user | description: It is an instance of a class and used in 1-hop distance of target
+
+name: age | description: It is an instance of a class and used in 1-hop distance of target
+Note: depth is not 1-hop as it comes after validate. Validate is not a child because it looks like it is not instance of class etc.
+
+
+Example 3: Variable Barrier (Internal Declaration)
+Target: calculate
+Code:
+Java
+void calculate() {
+    int localVal = 5;       // Skip (Internal declaration)
+    this.manager.sync();    // Child: manager (External field)
+    Helper.run();           // Child: Helper (External Static Class)
+    Config c = globalConfig.get(); // Nothing to return from this line as c is defined in the scope and globalconfig is not 1-hop from calculate.
+}
+Results:
+
+name: manager | description: Instance field defined at the class level.
+name: Helper | description: External static utility class reference.
+
+
+
+
+public class WorkflowEngine {
+    private final RemoteClient client = new RemoteClient();
+    private String env = "PROD";
+
+    public void runJob(Job job, int priority) {
+        int retryCount = 0; 
+        
+        if (job.isValid()) {
+            client.send(job);
+            AuditTool.log(env);
+        }
+    }
+}
+
+Test Case 1: Parameters (1-Hop)
+
+Input Target: runJob
+
+Expected Results:
+
+job
+
+priority
+
+Logic: These variables are defined in the signature (outside the body) and used directly.
+
+Test Case 2: Class Fields (1-Hop)
+
+Input Target: runJob
+
+Expected Results:
+
+client
+
+env
+
+Logic: These are instance-level dependencies defined outside the runJob method.
+
+Test Case 3: Static External Classes (1-Hop)
+
+Input Target: runJob
+
+Expected Results:
+
+AuditTool
+
+Logic: A direct static class reference used inside the method body.
+
+Test Case 4: Deep Argument Exclusion (The 2-Hop Test)
+
+Input Target: runJob (Specific Check)
+
+Verify: Ensure env is returned as a child of runJob, but check that if the target was AuditTool.log, env would be the child, NOT runJob.
+
+Logic: From the perspective of runJob, AuditTool is the 1-hop entity it interacts with to log. env is the 1-hop child of the log() call.
+
+Test Case 5: Local Variable Declaration (Negative Test)
+
+Input Target: runJob
+
+Expected Results: [] (For the variable retryCount)
+
+Logic: retryCount is defined inside the method, so it is not an "External" dependency.
