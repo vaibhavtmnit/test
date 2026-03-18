@@ -1,6 +1,11 @@
 import sqlglot
 from sqlglot import exp
 import networkx as nx
+Help me brainstorm strategy to solve a  prodblem which involves intelligently finding information from .sql code files having code lines in the order of 10k.
+The use case is as follows:
+There are files with 10k codelines and i want to build a system to retrive information about a table which is being modified in the script the modification is most adding data to a table or creating and merging.
+The return should have all the instances where the table of goven name is modified but the challenge is these tables might be linked to procedures or packages defined at the starting of the file thus if the table of interest is at line 4000 its doffocult to bring outs its dependencies as well. I thought of using deepagents by langchain but i am unable to come up with the retrieval strategy. The requirement is all eligible canddiated to be return with information related to their packages and procedures and one of the attributes of returned object should be only that part of the code which shows modifications.
+
 
 class SQLStructuralMapper:
     def __init__(self, file_path):
@@ -114,3 +119,6 @@ def create_test_sql():
         f.write("END PKG_SALES;\n/")
 
 create_test_sql()
+
+
+
