@@ -121,4 +121,95 @@ def create_test_sql():
 create_test_sql()
 
 
+import sqlglot
+from sqlglot import exp
+import networkx as nx
+import re
+
+class SQLStructuralMapper:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.dependency_graph = nx.DiGraph()
+        self.segments = {}
+
+    def _clean_block(self, block):
+        """Removes SQL*Plus noise that causes sqlglot to fail."""
+        # Remove comments, SHOW ERRORS, SET, and trailing slashes
+        block = re.sub(r'--.*', '', block)
+        block = re.sub(r'(?i)^\s*(SHOW|SET|PROMPT|SPOOL).*$', '', block, flags=re.MULTILINE)
+        return block.strip()
+
+    def parse_and_map(self):
+        with open(self.file_path, "r") as f:
+            content = f.read()
+            # Split by '/' followed by a newline (standard PL/SQL block separator)
+            raw_blocks = re.split(r'\n/\s*\n', content)
+        
+        for idx, raw_block in enumerate(raw_blocks):
+            clean_block = self._clean_block(raw_block)
+            if not clean_block: continue
+            
+            try:
+                # Use 'oracle' or 'postgres' depending on your DB
+                # 'read=None' allows it to try and guess if oracle fails
+                expressions = sqlglot.parse(clean_block, read="oracle")
+                
+                # Tracking the "Parent" (Package or Procedure)
+                current_scope = "GLOBAL"
+                
+                for expr in expressions:
+                    # Logic to identify the scope (Package/Procedure/Function)
+                    if isinstance(expr, (exp.Create, exp.Alter)):
+                        # Safely extract the name of the object being created
+                        found_name = expr.find(exp.Table) or expr.find(exp.Identifier)
+                        if found_name:
+                            current_scope = str(found_name).upper()
+
+                    # Find modifications: INSERT, UPDATE, MERGE, DELETE
+                    for mod in expr.find_all((exp.Insert, exp.Update, exp.Merge, exp.Delete)):
+                        table_node = mod.find(exp.Table)
+                        if table_node:
+                            table_name = table_node.name.upper()
+                            node_id = f"mod_{idx}_{table_name}"
+                            
+                            self.segments[node_id] = {
+                                "scope": current_scope,
+                                "table": table_name,
+                                "code": mod.sql(dialect="oracle"),
+                                "line_hint": idx # Tracking block index
+                            }
+                            
+                            # Build the Graph: Scope -> Table -> Modification Instance
+                            self.dependency_graph.add_edge(current_scope, table_name, type="contains_logic_for")
+                            self.dependency_graph.add_edge(table_name, node_id, type="has_instance")
+            except Exception as e:
+                # Fallback: If strict parsing fails, use Regex as a safety net for "Modifications"
+                self._fallback_regex_parse(clean_block, idx)
+
+    def _fallback_regex_parse(self, block, idx):
+        """If sqlglot fails, we still want to find modifications via Regex."""
+        # Pattern for MERGE INTO table_name or INSERT INTO table_name
+        pattern = r'(?i)(MERGE|INSERT|UPDATE|DELETE)\s+(?:INTO\s+)?([a-zA-Z0-9_.]+)'
+        matches = re.findall(pattern, block)
+        for action, table in matches:
+            table_name = table.upper()
+            node_id = f"fallback_{idx}_{table_name}"
+            self.segments[node_id] = {
+                "scope": "PARSING_ERROR_BLOCK",
+                "table": table_name,
+                "code": block[:500] + "... [Truncated due to parse error]",
+                "note": "Extracted via Regex fallback"
+            }
+            self.dependency_graph.add_edge("UNKNOWN_SCOPE", table_name)
+            self.dependency_graph.add_edge(table_name, node_id)
+
+    def get_table_report(self, table_name):
+        table_name = table_name.upper()
+        results = []
+        if table_name in self.dependency_graph:
+            for neighbor in self.dependency_graph.neighbors(table_name):
+                if neighbor in self.segments:
+                    results.append(self.segments[neighbor])
+        return results
+
 
